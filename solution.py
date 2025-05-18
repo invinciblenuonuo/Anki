@@ -1,6 +1,7 @@
 import os
 from volcenginesdkarkruntime import Ark
 import re
+from tqdm import tqdm
 
 def extract_sections(markdown_text):
     """从markdown文本中提取二级标题及其内容"""
@@ -25,7 +26,7 @@ def generate_qa_pair(title, content):
     """使用大模型API生成问答对"""
     client = Ark(
         base_url="https://ark.cn-beijing.volces.com/api/v3",
-        api_key=os.environ.get("08c545a7-214a-469a-99cf-8d741df7a5dc")
+        api_key="08c545a7-214a-469a-99cf-8d741df7a5dc"
     )
     
     prompt = f"""请将以下Markdown格式的笔记转换为"问题+答案"的形式：
@@ -56,22 +57,26 @@ def generate_qa_pair(title, content):
 
 def main():
     # 读取markdown文件
-    with open('嵌入式笔记.md', 'r', encoding='utf-8') as f:
+    with open('./嵌入式笔记.md', 'r', encoding='utf-8') as f:
         markdown_text = f.read()
     
     # 提取所有二级标题及其内容
     sections = extract_sections(markdown_text)
     
     # 生成CSV文件
-    with open('anki.csv', 'w', encoding='utf-8', newline='') as f:
+    with open('./anki.csv', 'w', encoding='utf-8', newline='') as f:
         f.write('问题,答案\n')  # CSV header
         
-        for section in sections:
+        # 显示进度条
+        print('正在生成问答对...')
+        for section in tqdm(sections, desc='处理进度'):
             question, answer = generate_qa_pair(section['title'], section['content'])
             # 处理CSV中的特殊字符
             question = question.replace('"', '""')
             answer = answer.replace('"', '""')
             f.write(f'"{question}","{answer}"\n')
+        
+        print(f'完成！已生成 {len(sections)} 个问答对。')
 
 if __name__ == '__main__':
     main()
