@@ -1,0 +1,22 @@
+问题,答案
+"NVIC（嵌套向量中断控制器）支持什么功能？","NVIC支持中断嵌套功能。当一个中断触发并且系统进行响应时，处理器硬件会将当前运行位置的上下文寄存器自动压入中断栈中，这部分的寄存器包括 PSR、PC、LR、R12、R3-R0 寄存器  
+![Cortex-M 内核和 NVIC 关系示意图](https://obsidian-1321127127.cos.ap-beijing.myqcloud.com/09relation.png)"
+"M3和M4的主要区别是什么？","- M4新增了FPU浮点单元  
+- 相较于M3采用软件方式计算浮点，M4的硬件浮点计算速度更快  
+- 相关图示：  
+![20180227201116208.png](https://obsidian-1321127127.cos.ap-beijing.myqcloud.com/20180227201116208.png)"
+"Cortex-M的运行级别分为哪两种？","Cortex-M分为两个运行级别：  
+- 处理模式：异常与中断，工作在特权级  
+- 线程模式：其他情况，可以工作在用户级和特权级  
+
+![09interrupt_work_sta.png](https://obsidian-1321127127.cos.ap-beijing.myqcloud.com/09interrupt_work_sta.png)  
+
+---"
+"Cortex-M系列CPU的寄存器组包含哪些寄存器？","Cortex-M 系列 CPU 的寄存器组里有 R0~R15 共 16 个通用寄存器组和若干特殊功能寄存器"
+"R13 SP MSP PSP分别代表什么？MSP和PSP有什么区别和联系？","- MSP的含义是Main_Stack_Pointer，即主栈  
+PSP的含义是 Process_Stack_Pointer,即任务栈  
+- Cortex-M3内核中有两个堆栈指针（MSP & PSP），但任何时刻只能使用到其中一个。  
+- 复位后处于线程模式特权级，默认使用MSP。  
+- 通过SP访问到的是正在使用的那个指针，可以通过MSR/MRS指令访问指定的堆栈指针。  
+- 通过设置CONTROL寄存器的bit[1]选择使用哪个堆栈指针。CONTROL[1]=0选择主堆栈指针；CONTROL[1]=1选择进程堆栈指针。  
+- Handler模式下，只允许使用主堆栈指针MSP。"

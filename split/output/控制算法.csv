@@ -1,0 +1,84 @@
+问题,答案
+"什么是PID控制？","- **P（比例控制）**：误差*Kp **【弹簧】**  
+- **I（积分控制）**：误差*Ki后累计 **【积分】**  
+- **D（微分控制）**：当前和之前两次误差的差值*Kd（当过冲时方向相反，为负反馈阻尼） **【阻尼】**"
+"KF、EKF、UKF分别是什么？它们的特点和适用场景是什么？","- **KF（卡尔曼滤波）**：  
+  最早提出的卡尔曼滤波算法，适用于线性系统，且系统状态和观测误差服从高斯分布。KF通过预测和更新步骤来估计系统的状态，并通过协方差矩阵来描述状态估计的不确定性。然而，KF不能很好地处理非线性系统。  
+
+- **EKF（扩展卡尔曼滤波）**：  
+  扩展卡尔曼将非线性系统离散化线性化，并利用线性系统的KF进行状态估差，当非线性度较高时，EKF的估计精度可能下降。  
+
+- **UKF（无迹卡尔曼滤波）**：  
+  无迹卡尔曼滤波用来解决非线性系统的问题。UKF通过选取一组称为Sigma点的采样点，保留系统的一阶矩和二阶矩，而不是线性化处理。通过这种方式，UKF能够更好地逼近非线性系统的真实分布，并提供更准确的状态估高斯系统。"
+"什么是串级PID？","串级PID是一种控制策略，实际使用中由于电流环控制已经由电机实现，因此用户仅需实现位置环和速度环。  
+
+![image.png](https://obsidian-1321127127.cos.ap-beijing.myqcloud.com/image.png)  
+![image-20230608153852593.png](https://obsidian-1321127127.cos.ap-beijing.myqcloud.com/image-20230608153852593.png)  
+
+**串级PID的优势与原因**：  
+1. **不同工况适应性**：  
+   对于不同的系统工况，由于电机实际输入是电流（直接控制转速），当电机负载不同时（原有PID参数用于平地行驶，现在爬坡行驶），电机系统模型也不同，采用同一套位置环PID算法较难获得稳定的电机电流输出信号，导致同一套参数的控制效果在其他工况变差。串级PID的引入，使得内环可以让电机速度更快地跟随。  
+
+2. **系统稳态要求**：  
+   若仅有位置环PID，达到指定位置时，由于没有对速度的限制，因此可能发生震荡。引入内环后速度也有PID控制器进行反馈，当位置较小时，内环的输入也会变小，从而约束稳态速度减小到0。  
+
+3. **限制速度**：  
+   对于内环而言，可以采用输出限幅的方式限制转速，从而避免了单位置环PID在偏差较大时电机速度过快。  
+
+**串级PID的参数整定**：  
+基本遵循从内到外，先整定内环PID的参数，再整定外环PID的参数。  
+
+**代码示例（PID实现）**：  
+```c
+typedef struct {
+    uint8_t mode;
+    //PID 三参数
+    fp32 Kp;
+    fp32 Ki;
+    fp32 Kd;
+    fp32 max_out;  // 最大输出
+    fp32 max_iout;  // 最大积分输出
+    fp32 set;
+    fp32 fdb;
+    fp32 out;
+    fp32 Pout;
+    fp32 Iout;
+    fp32 Dout;
+    fp32 Dbuf[3];  // 微分项 0最新 1上一次 2上上次
+    fp32 error[3];  // 误差项 0最新 1上一次 2上上次
+} PID_t;
+
+fp32 PID_Calc(PID_t *pid, fp32 fdb, fp32 set) {
+    if (pid == NULL) {
+        return 0.0f;
+    }
+    pid->error[2] = pid->error[1];
+    pid->error[1] = pid->error[0];
+    pid->set = set;
+    pid->fdb = fdb;
+    pid->error[0] = set - fdb;
+    if (pid->mode == PID_POSITION) {
+        pid->Pout = pid->Kp * pid->error[0];
+        pid->Iout += pid->Ki * pid->error[0];
+        pid->Dbuf[2] = pid->Dbuf[1];
+        pid->Dbuf[1] = pid->Dbuf[0];
+        pid->Dbuf[0] = (pid->error[0] - pid->error[1]);
+        pid->Dout = pid->Kd * pid->Dbuf[0];
+        LimitMax(pid->Iout, pid->max_iout);
+        pid->out = pid->Pout + pid->Iout + pid->Dout;
+        LimitMax(pid->out, pid->max_out);
+    }
+    else if (pid->mode == PID_DELTA) {
+        pid->Pout = pid->Kp * (pid->error[0] - pid->error[1]);
+        pid->Iout = pid->Ki * pid->error[0];
+        pid->Dbuf[2] = pid->Dbuf[1];
+        pid->Dbuf[1] = pid->Dbuf[0];
+        pid->Dbuf[0] = (pid->error[0] - 2.0f * pid->error[1] + pid->error[2]);
+        pid->Dout = pid->Kd * pid->Dbuf[0];
+        pid->out += pid->Pout + pid->Iout + pid->Dout;
+        LimitMax(pid->out, pid->max_out);
+    }
+    return pid->out;
+}
+```"
+"什么是卡尔曼滤波？","用于过滤高斯噪声（白噪声）的算法。"
