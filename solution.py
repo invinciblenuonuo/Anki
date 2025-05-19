@@ -2,6 +2,9 @@ import os
 from volcenginesdkarkruntime import Ark
 import re
 from tqdm import tqdm
+import queue
+from multiprocessing.pool import ThreadPool
+from datetime import datetime
 
 def extract_sections(markdown_text):
     """从markdown文本中提取二级标题及其内容"""
@@ -22,14 +25,22 @@ def extract_sections(markdown_text):
     
     return sections
 
-def generate_qa_pair(title, content):
-    """使用大模型API生成问答对"""
-    client = Ark(
-        base_url="https://ark.cn-beijing.volces.com/api/v3",
-        api_key="08c545a7-214a-469a-99cf-8d741df7a5dc"
-    )
-    joined_content = '\n'.join(content)
-    prompt = f""" 请将以下Markdown格式的笔记转换为"问题+答案"的形式：
+def worker(worker_id, client, requests, results, task_status):
+    """处理API请求的工作线程"""
+    print(f"工作线程 {worker_id} 已启动并开始处理任务...")
+    task_count = 0
+    while True:
+        try:
+            task = requests.get(timeout=30)  # 设置30秒超时
+            if task is None:
+                requests.put(None)  # 为其他工作线程放回信号
+                break
+
+            title, content = task
+            task_count += 1
+            print(f"工作线程 {worker_id} 正在处理第 {task_count} 个任务：{title}")
+            joined_content = '\n'.join(content)
+            prompt = f""" 请将以下Markdown格式的笔记转换为"问题+答案"的形式：
 
 标题：{title}
 内容：{joined_content}
@@ -40,61 +51,137 @@ def generate_qa_pair(title, content):
 
 答案的输出需要使用markdown格式，并且需要保留原有的换行符。
 """
-    
-    completion = client.chat.completions.create(
-        model="deepseek-v3-250324",
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
-    )
-    
-    response = completion.choices[0].message.content
-    
-    # 记录API调用日志
-    import json
-    from datetime import datetime
-    log_entry = {
-        "timestamp": datetime.now().isoformat(),
-        "prompt": prompt,
-        "response": response
-    }
-    with open('api_calls.json', 'a', encoding='utf-8') as f:
-        json.dump(log_entry, f, ensure_ascii=False)
-        f.write('\n')
-    
-    # 提取问题和答案
-    question_match = re.search(r'问题：([^\n]+)', response)
-    answer_match = re.search(r'答案：([\s\S]+?)(?=\n\n问题：|$)', response)
-    
-    if question_match and answer_match:
-        question = question_match.group(1).strip()
-        answer = answer_match.group(1).strip()
-        # 保持答案的原始markdown格式，包括换行符
-        return question, answer
-    return title, ' '.join(content)  # 如果提取失败，返回原始标题和内容
+
+            completion = client.chat.completions.create(
+                model="deepseek-v3-250324",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+
+            response = completion.choices[0].message.content
+
+            # 记录API调用日志
+            log_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "prompt": prompt,
+                "response": response
+            }
+            with open('api_calls.json', 'a', encoding='utf-8') as f:
+                import json
+                json.dump(log_entry, f, ensure_ascii=False)
+                f.write('\n')
+
+            # 提取问题和答案
+            question_match = re.search(r'问题：([^\n]+)', response)
+            answer_match = re.search(r'答案：([\s\S]+?)(?=\n\n问题：|$)', response)
+
+            if question_match and answer_match:
+                question = question_match.group(1).strip()
+                answer = answer_match.group(1).strip()
+            else:
+                question, answer = title, ' '.join(content)
+
+            results.put((question, answer))
+            task_status[title] = "完成"
+            print(f"工作线程 {worker_id} 已完成第 {task_count} 个任务的处理：{title}")
+
+        except queue.Empty:
+            print(f"工作线程 {worker_id} 等待任务超时，退出线程")
+            break
+        except Exception as e:
+            print(f"工作线程 {worker_id} 在处理任务时遇到错误：{e}")
+            print(f"错误详情：\n标题：{title}\n内容：{joined_content}")
+            task_status[title] = "失败"
+        finally:
+            if task is not None:
+                requests.task_done()
 
 def main():
+    start = datetime.now()
+    max_concurrent_tasks = 5  # 设置合理的并发数
+    task_status = {}  # 用于跟踪任务状态
+
     # 读取markdown文件
+    print('正在读取markdown文件...')
     with open('./嵌入式笔记.md', 'r', encoding='utf-8') as f:
         markdown_text = f.read()
-    
+    print('文件读取完成！')
+
     # 提取所有二级标题及其内容
+    print('正在解析文件中的二级标题和内容...')
     sections = extract_sections(markdown_text)
-    
+    print(f'共找到 {len(sections)} 个二级标题')
+
+    # 创建请求队列和结果队列
+    requests = queue.Queue()
+    results = queue.Queue()
+
+    # 创建API客户端
+    print('正在初始化API客户端...')
+    client = Ark(
+        #base_url="https://ark.cn-beijing.volces.com/api/v3",
+        api_key="a4fea1b4-5e95-469b-8e0f-646ab46287f6"
+    )
+    print('API客户端初始化完成！')
+
+    # 将任务放入请求队列
+    print('正在准备任务队列...')
+    for section in sections:
+        requests.put((section['title'], section['content']))
+    print(f'已将 {len(sections)} 个任务添加到队列')
+
+    # 添加结束信号
+    requests.put(None)
+
+    # 创建线程池处理请求
+    print(f'正在启动 {max_concurrent_tasks} 个工作线程处理问答对生成任务...')
+    with ThreadPool(max_concurrent_tasks) as pool:
+        workers = []
+        for i in range(max_concurrent_tasks):
+            worker_thread = pool.apply_async(worker, args=(i, client, requests, results, task_status))
+            workers.append(worker_thread)
+        pool.close()
+
+        # 等待所有请求处理完成，同时显示任务状态
+        try:
+            while not all(worker.ready() for worker in workers):
+                completed = sum(1 for status in task_status.values() if status == "完成")
+                failed = sum(1 for status in task_status.values() if status == "失败")
+                total = len(sections)
+                print(f"\r当前进度：完成 {completed}/{total} 个任务，失败 {failed} 个任务", end="")
+                import time
+                time.sleep(1)
+            requests.join(timeout=30)
+        except queue.Empty:
+            print("\n任务队列等待超时，程序将继续处理已完成的任务")
+        except Exception as e:
+            print(f"\n等待任务完成时发生错误：{e}")
+
     # 生成CSV文件
     with open('./anki.csv', 'w', encoding='utf-8', newline='') as f:
         f.write('问题,答案\n')  # CSV header
-        
-        # 显示进度条
-        print('正在生成问答对...')
-        for section in tqdm(sections, desc='处理进度'):
-            question, answer = generate_qa_pair(section['title'], section['content'])
-            # 处理CSV中的特殊字符
-            question = question.replace('"', '""')
-            answer = answer.replace('"', '""')
-            f.write(f'"{question}","{answer}"\n')
-        
-        print(f'完成！已生成 {len(sections)} 个问答对。')
+
+        # 处理结果
+        processed_count = 0
+        with tqdm(total=len(sections), desc='保存进度') as pbar:
+            while processed_count < len(sections):
+                question, answer = results.get()
+                # 处理CSV中的特殊字符
+                question = question.replace('"', '""')
+                answer = answer.replace('"', '""')
+                f.write(f'"{question}","{answer}"\n')
+                processed_count += 1
+                pbar.update(1)
+
+    end = datetime.now()
+    print(f'\n任务完成情况统计：')
+    print(f'- 总共处理的二级标题数量：{len(sections)}')
+    print(f'- 生成的问答对数量：{len(sections)}')
+    print(f'- 总耗时：{end - start}')
+    print('\n所有任务处理完成！CSV文件已生成。')
+
+    client.close()
 
 if __name__ == '__main__':
     main()
