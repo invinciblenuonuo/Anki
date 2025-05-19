@@ -104,7 +104,7 @@ def main():
 
     # 读取markdown文件
     print('正在读取markdown文件...')
-    with open('./嵌入式笔记.md', 'r', encoding='utf-8') as f:
+    with open('./嵌入式笔记_full.md', 'r', encoding='utf-8') as f:
         markdown_text = f.read()
     print('文件读取完成！')
 
