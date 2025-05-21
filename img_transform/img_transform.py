@@ -48,9 +48,9 @@ def replace_local_links(note_file, output_file, online_links):
 
 def main():
     # 文件路径
-    img_link_file = 'img_link.md'
-    note_file = '嵌入式笔记_full.md'
-    output_file = '嵌入式笔记_online.md'
+    img_link_file = 'img_link2.md'
+    note_file = '嵌入式八股.md'
+    output_file = '嵌入式八股_online.md'
     
     # 提取在线链接
     online_links = extract_online_links(img_link_file)

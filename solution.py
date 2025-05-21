@@ -104,7 +104,7 @@ def main():
 
     # 读取markdown文件
     print('正在读取markdown文件...')
-    with open('./嵌入式笔记_full.md', 'r', encoding='utf-8') as f:
+    with open('./嵌入式八股_online.md', 'r', encoding='utf-8') as f:
         markdown_text = f.read()
     print('文件读取完成！')
 
@@ -159,7 +159,7 @@ def main():
             print(f"\n等待任务完成时发生错误：{e}")
 
     # 生成CSV文件
-    with open('./anki.csv', 'w', encoding='utf-8', newline='') as f:
+    with open('./anki_八股.csv', 'w', encoding='utf-8', newline='') as f:
         f.write('问题,答案\n')  # CSV header
 
         # 处理结果
